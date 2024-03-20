@@ -1,0 +1,100 @@
+from flask import Flask, render_template, request, redirect, url_for, session
+import sqlite3
+import os
+
+app = Flask(__name__)
+app.secret_key = 'your_secret_key'
+
+# 创建数据库
+def create_tables():
+    conn = sqlite3.connect('facebook_clone.db')
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS posts
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                 user_id INTEGER,
+                 message TEXT, 
+                 image TEXT,
+                 FOREIGN KEY(user_id) REFERENCES users(id))''')
+    conn.commit()
+    conn.close()
+
+create_tables()
+
+# 注册
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        
+        conn = sqlite3.connect('facebook_clone.db')
+        c = conn.cursor()
+        c.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
+        conn.commit()
+        conn.close()
+        
+        return redirect(url_for('login'))
+    return render_template('register.html')
+
+# 登录
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        
+        conn = sqlite3.connect('facebook_clone.db')
+        c = conn.cursor()
+        c.execute("SELECT * FROM users WHERE username=? AND password=?", (username, password))
+        user = c.fetchone()
+        conn.close()
+        
+        if user:
+            session['user_id'] = user[0]
+            return redirect(url_for('index'))
+        else:
+            return render_template('login.html', error=True)
+    return render_template('login.html', error=False)
+
+# 登出
+@app.route('/logout')
+def logout():
+    session.pop('user_id', None)
+    return redirect(url_for('login'))
+
+# 主页，显示所有帖子
+@app.route('/')
+def index():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    conn = sqlite3.connect('facebook_clone.db')
+    c = conn.cursor()
+    c.execute("SELECT * FROM posts")
+    posts = c.fetchall()
+    conn.close()
+    return render_template('index.html', posts=posts)
+
+# 发布帖子
+@app.route('/post', methods=['POST'])
+def post():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    message = request.form['message']
+    image = request.files['image']
+    if image:
+        image.save(os.path.join('static/uploads', image.filename))
+        image_path = 'static/uploads/' + image.filename
+    else:
+        image_path = None
+    
+    conn = sqlite3.connect('facebook_clone.db')
+    c = conn.cursor()
+    c.execute("INSERT INTO posts (user_id, message, image) VALUES (?, ?, ?)", (session['user_id'], message, image_path))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('index'))
+
+if __name__ == '__main__':
+    app.run(debug=True)
